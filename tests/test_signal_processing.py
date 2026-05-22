@@ -13,7 +13,6 @@ import pytest
 from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
 from tradingagents.graph.signal_processing import SignalProcessor
 
-
 # ---------------------------------------------------------------------------
 # Heuristic parser
 # ---------------------------------------------------------------------------
@@ -45,9 +44,7 @@ class TestParseRating:
 
     def test_explicit_label_wins_over_prose_with_markdown(self):
         text = (
-            "The buy thesis is weakened by guidance.\n"
-            "Rating: **Sell**\n"
-            "Exit before earnings."
+            "The buy thesis is weakened by guidance.\n" "Rating: **Sell**\n" "Exit before earnings."
         )
         assert parse_rating(text) == "Sell"
 

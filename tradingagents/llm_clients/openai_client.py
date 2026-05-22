@@ -1,5 +1,5 @@
 import os
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
@@ -83,7 +83,7 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
         outgoing = payload.get("messages", [])
-        for message_dict, message in zip(outgoing, _input_to_messages(input_)):
+        for message_dict, message in zip(outgoing, _input_to_messages(input_), strict=False):
             if not isinstance(message, AIMessage):
                 continue
             reasoning = message.additional_kwargs.get("reasoning_content")
@@ -96,12 +96,10 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
         response_dict = (
             response
             if isinstance(response, dict)
-            else response.model_dump(
-                exclude={"choices": {"__all__": {"message": {"parsed"}}}}
-            )
+            else response.model_dump(exclude={"choices": {"__all__": {"message": {"parsed"}}}})
         )
         for generation, choice in zip(
-            chat_result.generations, response_dict.get("choices", [])
+            chat_result.generations, response_dict.get("choices", []), strict=False
         ):
             reasoning = choice.get("message", {}).get("reasoning_content")
             if reasoning is not None:
@@ -138,8 +136,13 @@ class MinimaxChatOpenAI(NormalizedChatOpenAI):
 
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
-    "timeout", "max_retries", "reasoning_effort",
-    "api_key", "callbacks", "http_client", "http_async_client",
+    "timeout",
+    "max_retries",
+    "reasoning_effort",
+    "api_key",
+    "callbacks",
+    "http_client",
+    "http_async_client",
 )
 
 # Provider base URLs. API-key env vars live in api_key_env.PROVIDER_API_KEY_ENV
@@ -148,20 +151,20 @@ _PASSTHROUGH_KWARGS = (
 # separate endpoints because international and China accounts cannot share
 # credentials (#758).
 _PROVIDER_BASE_URL = {
-    "xai":        "https://api.x.ai/v1",
-    "deepseek":   "https://api.deepseek.com",
-    "qwen":       "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-    "qwen-cn":    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "glm":        "https://api.z.ai/api/paas/v4/",
-    "glm-cn":     "https://open.bigmodel.cn/api/paas/v4/",
-    "minimax":    "https://api.minimax.io/v1",
+    "xai": "https://api.x.ai/v1",
+    "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "qwen-cn": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://api.z.ai/api/paas/v4/",
+    "glm-cn": "https://open.bigmodel.cn/api/paas/v4/",
+    "minimax": "https://api.minimax.io/v1",
     "minimax-cn": "https://api.minimaxi.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
-    "ollama":     "http://localhost:11434/v1",
+    "ollama": "http://localhost:11434/v1",
 }
 
 
-def _resolve_provider_base_url(provider: str) -> Optional[str]:
+def _resolve_provider_base_url(provider: str) -> str | None:
     """Default base URL for ``provider``, with env-var overrides where defined.
 
     Currently only Ollama supports an env-var override (``OLLAMA_BASE_URL``),
@@ -189,7 +192,7 @@ class OpenAIClient(BaseLLMClient):
     def __init__(
         self,
         model: str,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
         provider: str = "openai",
         **kwargs,
     ):

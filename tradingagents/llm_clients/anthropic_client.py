@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any
 
 from langchain_anthropic import ChatAnthropic
 
@@ -7,8 +7,14 @@ from .base_client import BaseLLMClient, normalize_content
 from .validators import validate_model
 
 _PASSTHROUGH_KWARGS = (
-    "timeout", "max_retries", "api_key", "max_tokens",
-    "callbacks", "http_client", "http_async_client", "effort",
+    "timeout",
+    "max_retries",
+    "api_key",
+    "max_tokens",
+    "callbacks",
+    "http_client",
+    "http_async_client",
+    "effort",
 )
 
 # Anthropic's extended-thinking ``effort`` parameter is accepted by Opus 4.5+
@@ -43,7 +49,7 @@ class NormalizedChatAnthropic(ChatAnthropic):
 class AnthropicClient(BaseLLMClient):
     """Client for Anthropic Claude models."""
 
-    def __init__(self, model: str, base_url: Optional[str] = None, **kwargs):
+    def __init__(self, model: str, base_url: str | None = None, **kwargs):
         super().__init__(model, base_url, **kwargs)
 
     def get_llm(self) -> Any:

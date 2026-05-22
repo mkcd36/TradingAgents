@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict
 
 import questionary
 from dotenv import find_dotenv, set_key
@@ -57,15 +56,11 @@ def detect_asset_type(ticker: str) -> AssetType:
 
 
 def filter_analysts_for_asset_type(
-    analysts: List[AnalystType], asset_type: AssetType
-) -> List[AnalystType]:
+    analysts: list[AnalystType], asset_type: AssetType
+) -> list[AnalystType]:
     if asset_type != AssetType.CRYPTO:
         return analysts
-    return [
-        analyst
-        for analyst in analysts
-        if analyst != AnalystType.FUNDAMENTALS
-    ]
+    return [analyst for analyst in analysts if analyst != AnalystType.FUNDAMENTALS]
 
 
 def get_analysis_date() -> str:
@@ -101,7 +96,7 @@ def get_analysis_date() -> str:
     return date.strip()
 
 
-def select_analysts(asset_type: AssetType = AssetType.STOCK) -> List[AnalystType]:
+def select_analysts(asset_type: AssetType = AssetType.STOCK) -> list[AnalystType]:
     """Select analysts using an interactive checkbox."""
     available_analysts = filter_analysts_for_asset_type(
         [value for _, value in ANALYST_ORDER],
@@ -145,9 +140,7 @@ def select_research_depth() -> int:
 
     choice = questionary.select(
         "Select Your [Research Depth]:",
-        choices=[
-            questionary.Choice(display, value=value) for display, value in DEPTH_OPTIONS
-        ],
+        choices=[questionary.Choice(display, value=value) for display, value in DEPTH_OPTIONS],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
             [
@@ -165,9 +158,10 @@ def select_research_depth() -> int:
     return choice
 
 
-def _fetch_openrouter_models() -> List[Tuple[str, str]]:
+def _fetch_openrouter_models() -> list[tuple[str, str]]:
     """Fetch available models from the OpenRouter API."""
     import requests
+
     try:
         resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
         resp.raise_for_status()
@@ -189,28 +183,38 @@ def select_openrouter_model() -> str:
         "Select OpenRouter Model (latest available):",
         choices=choices,
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style([
-            ("selected", "fg:magenta noinherit"),
-            ("highlighted", "fg:magenta noinherit"),
-            ("pointer", "fg:magenta noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
     ).ask()
 
     if choice is None or choice == "custom":
-        return questionary.text(
-            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-        ).ask().strip()
+        return (
+            questionary.text(
+                "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
+                validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
+            )
+            .ask()
+            .strip()
+        )
 
     return choice
 
 
 def _prompt_custom_model_id() -> str:
     """Prompt user to type a custom model ID."""
-    return questionary.text(
-        "Enter model ID:",
-        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-    ).ask().strip()
+    return (
+        questionary.text(
+            "Enter model ID:",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
+        )
+        .ask()
+        .strip()
+    )
 
 
 def _select_model(provider: str, mode: str) -> str:
@@ -219,10 +223,14 @@ def _select_model(provider: str, mode: str) -> str:
         return select_openrouter_model()
 
     if provider.lower() == "azure":
-        return questionary.text(
-            f"Enter Azure deployment name ({mode}-thinking):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
-        ).ask().strip()
+        return (
+            questionary.text(
+                f"Enter Azure deployment name ({mode}-thinking):",
+                validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
+            )
+            .ask()
+            .strip()
+        )
 
     choice = questionary.select(
         f"Select Your [{mode.title()}-Thinking LLM Engine]:",
@@ -259,6 +267,7 @@ def select_deep_thinking_agent(provider) -> str:
     """Select deep thinking llm engine using an interactive selection."""
     return _select_model(provider, "deep")
 
+
 def select_llm_provider() -> tuple[str, str | None]:
     """Select the LLM provider and its API endpoint."""
     # Ollama users can point at a remote ollama-serve via OLLAMA_BASE_URL
@@ -266,8 +275,13 @@ def select_llm_provider() -> tuple[str, str | None]:
     # localhost default when unset.
     ollama_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
     # (display_name, provider_key, base_url)
+    # Honor TRADINGAGENTS_LLM_BACKEND_URL for the OpenAI entry so users on
+    # OpenAI-compatible gateways (Fuel iX, LiteLLM, vLLM, etc.) can route
+    # through their proxy without forking the CLI. Falls back to the public
+    # OpenAI endpoint when the override isn't set.
+    openai_base_url = os.environ.get("TRADINGAGENTS_LLM_BACKEND_URL") or "https://api.openai.com/v1"
     PROVIDERS = [
-        ("OpenAI", "openai", "https://api.openai.com/v1"),
+        ("OpenAI", "openai", openai_base_url),
         ("Google", "google", None),
         ("Anthropic", "anthropic", "https://api.anthropic.com/"),
         ("xAI", "xai", "https://api.x.ai/v1"),
@@ -295,7 +309,7 @@ def select_llm_provider() -> tuple[str, str | None]:
             ]
         ),
     ).ask()
-    
+
     if choice is None:
         console.print("\n[red]No LLM provider selected. Exiting...[/red]")
         exit(1)
@@ -314,11 +328,13 @@ def ask_openai_reasoning_effort() -> str:
     return questionary.select(
         "Select Reasoning Effort:",
         choices=choices,
-        style=questionary.Style([
-            ("selected", "fg:cyan noinherit"),
-            ("highlighted", "fg:cyan noinherit"),
-            ("pointer", "fg:cyan noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan noinherit"),
+                ("highlighted", "fg:cyan noinherit"),
+                ("pointer", "fg:cyan noinherit"),
+            ]
+        ),
     ).ask()
 
 
@@ -336,11 +352,13 @@ def ask_anthropic_effort() -> str | None:
             questionary.Choice("Medium (balanced)", "medium"),
             questionary.Choice("Low (faster, cheaper)", "low"),
         ],
-        style=questionary.Style([
-            ("selected", "fg:cyan noinherit"),
-            ("highlighted", "fg:cyan noinherit"),
-            ("pointer", "fg:cyan noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan noinherit"),
+                ("highlighted", "fg:cyan noinherit"),
+                ("pointer", "fg:cyan noinherit"),
+            ]
+        ),
     ).ask()
 
 
@@ -356,11 +374,13 @@ def ask_gemini_thinking_config() -> str | None:
             questionary.Choice("Enable Thinking (recommended)", "high"),
             questionary.Choice("Minimal/Disable Thinking", "minimal"),
         ],
-        style=questionary.Style([
-            ("selected", "fg:green noinherit"),
-            ("highlighted", "fg:green noinherit"),
-            ("pointer", "fg:green noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:green noinherit"),
+                ("highlighted", "fg:green noinherit"),
+                ("pointer", "fg:green noinherit"),
+            ]
+        ),
     ).ask()
 
 
@@ -382,11 +402,13 @@ def ask_glm_region() -> tuple[str, str]:
                 value=("glm-cn", "https://open.bigmodel.cn/api/paas/v4/"),
             ),
         ],
-        style=questionary.Style([
-            ("selected", "fg:cyan noinherit"),
-            ("highlighted", "fg:cyan noinherit"),
-            ("pointer", "fg:cyan noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan noinherit"),
+                ("highlighted", "fg:cyan noinherit"),
+                ("pointer", "fg:cyan noinherit"),
+            ]
+        ),
     ).ask()
 
 
@@ -409,11 +431,13 @@ def ask_qwen_region() -> tuple[str, str]:
                 value=("qwen-cn", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             ),
         ],
-        style=questionary.Style([
-            ("selected", "fg:cyan noinherit"),
-            ("highlighted", "fg:cyan noinherit"),
-            ("pointer", "fg:cyan noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan noinherit"),
+                ("highlighted", "fg:cyan noinherit"),
+                ("pointer", "fg:cyan noinherit"),
+            ]
+        ),
     ).ask()
 
 
@@ -436,16 +460,18 @@ def ask_minimax_region() -> tuple[str, str]:
                 value=("minimax-cn", "https://api.minimaxi.com/v1"),
             ),
         ],
-        style=questionary.Style([
-            ("selected", "fg:cyan noinherit"),
-            ("highlighted", "fg:cyan noinherit"),
-            ("pointer", "fg:cyan noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan noinherit"),
+                ("highlighted", "fg:cyan noinherit"),
+                ("pointer", "fg:cyan noinherit"),
+            ]
+        ),
     ).ask()
 
 
 def confirm_ollama_endpoint(url: str) -> None:
-    """Show the resolved Ollama endpoint after provider selection.
+    r"""Show the resolved Ollama endpoint after provider selection.
 
     Surfaces three things the user benefits from seeing before model
     selection: which URL we'll actually hit, where it came from
@@ -474,7 +500,7 @@ def confirm_ollama_endpoint(url: str) -> None:
         )
 
 
-def ensure_api_key(provider: str) -> Optional[str]:
+def ensure_api_key(provider: str) -> str | None:
     """Make sure the API key for `provider` is available in the environment.
 
     If the env var is already set, returns its value untouched. Otherwise
@@ -493,20 +519,18 @@ def ensure_api_key(provider: str) -> Optional[str]:
     if existing:
         return existing
 
-    console.print(
-        f"\n[yellow]{env_var} is not set in your environment.[/yellow]"
-    )
+    console.print(f"\n[yellow]{env_var} is not set in your environment.[/yellow]")
     key = questionary.password(
         f"Paste your {env_var} (will be saved to .env):",
-        style=questionary.Style([
-            ("text", "fg:cyan"),
-            ("highlighted", "noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("text", "fg:cyan"),
+                ("highlighted", "noinherit"),
+            ]
+        ),
     ).ask()
     if not key:
-        console.print(
-            f"[red]Skipped. API calls will fail until {env_var} is set.[/red]"
-        )
+        console.print(f"[red]Skipped. API calls will fail until {env_var} is set.[/red]")
         return None
 
     env_path = find_dotenv(usecwd=True) or str(Path.cwd() / ".env")
@@ -535,17 +559,23 @@ def ask_output_language() -> str:
             questionary.Choice("Russian (Русский)", "Russian"),
             questionary.Choice("Custom language", "custom"),
         ],
-        style=questionary.Style([
-            ("selected", "fg:yellow noinherit"),
-            ("highlighted", "fg:yellow noinherit"),
-            ("pointer", "fg:yellow noinherit"),
-        ]),
+        style=questionary.Style(
+            [
+                ("selected", "fg:yellow noinherit"),
+                ("highlighted", "fg:yellow noinherit"),
+                ("pointer", "fg:yellow noinherit"),
+            ]
+        ),
     ).ask()
 
     if choice == "custom":
-        return questionary.text(
-            "Enter language name (e.g. Turkish, Vietnamese, Thai, Indonesian):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a language name.",
-        ).ask().strip()
+        return (
+            questionary.text(
+                "Enter language name (e.g. Turkish, Vietnamese, Thai, Indonesian):",
+                validate=lambda x: len(x.strip()) > 0 or "Please enter a language name.",
+            )
+            .ask()
+            .strip()
+        )
 
     return choice

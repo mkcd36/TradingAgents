@@ -47,12 +47,10 @@ class TestMinimaxReasoningSplit:
         receive reasoning_split — the openai SDK rejects unknown kwargs with
         TypeError (#826)."""
         for model in ("minimax-text-01", "MiniMax-Coding-Plan"):
-            payload = _client(model)._get_request_payload(
-                [HumanMessage(content="hi")]
-            )
-            assert "reasoning_split" not in payload, (
-                f"{model!r} payload unexpectedly contains reasoning_split"
-            )
+            payload = _client(model)._get_request_payload([HumanMessage(content="hi")])
+            assert (
+                "reasoning_split" not in payload
+            ), f"{model!r} payload unexpectedly contains reasoning_split"
 
 
 @pytest.mark.unit

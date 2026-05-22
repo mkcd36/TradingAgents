@@ -19,10 +19,8 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Shared rating types
@@ -92,13 +90,15 @@ class ResearchPlan(BaseModel):
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
-    return "\n".join([
-        f"**Recommendation**: {plan.recommendation.value}",
-        "",
-        f"**Rationale**: {plan.rationale}",
-        "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
-    ])
+    return "\n".join(
+        [
+            f"**Recommendation**: {plan.recommendation.value}",
+            "",
+            f"**Rationale**: {plan.rationale}",
+            "",
+            f"**Strategic Actions**: {plan.strategic_actions}",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -124,15 +124,15 @@ class TraderProposal(BaseModel):
             "the research plan. Two to four sentences."
         ),
     )
-    entry_price: Optional[float] = Field(
+    entry_price: float | None = Field(
         default=None,
         description="Optional entry price target in the instrument's quote currency.",
     )
-    stop_loss: Optional[float] = Field(
+    stop_loss: float | None = Field(
         default=None,
         description="Optional stop-loss price in the instrument's quote currency.",
     )
-    position_sizing: Optional[str] = Field(
+    position_sizing: str | None = Field(
         default=None,
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
@@ -156,10 +156,12 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
-    parts.extend([
-        "",
-        f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
-    ])
+    parts.extend(
+        [
+            "",
+            f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -196,11 +198,11 @@ class PortfolioDecision(BaseModel):
             "incorporate them; otherwise rely solely on the current analysis."
         ),
     )
-    price_target: Optional[float] = Field(
+    price_target: float | None = Field(
         default=None,
         description="Optional target price in the instrument's quote currency.",
     )
-    time_horizon: Optional[str] = Field(
+    time_horizon: str | None = Field(
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
