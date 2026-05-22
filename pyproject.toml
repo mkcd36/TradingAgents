@@ -48,6 +48,21 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["E501", "F403", "F405"]
+# Defense-in-depth against autofix accidents: ruff still REPORTS unused
+# imports (F401), but `--fix` will refuse to delete them. Re-export shim
+# modules look like they have unused imports and were silently gutted by a
+# previous `ruff check --fix` run, breaking the package at import time.
+# Removing F401 imports stays a manual decision so the dev can spot real
+# re-exports (especially in `agent_utils.py`, `dataflows/alpha_vantage.py`,
+# and any future facade module) before deleting anything.
+unfixable = ["F401"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files are intentionally re-export shims for backwards compatibility
+# after the tools/data-vendor split. `__all__` already declares the public
+# surface; this just silences the F401 warning in `ruff check`.
+"tradingagents/agents/utils/agent_utils.py" = ["F401"]
+"tradingagents/dataflows/alpha_vantage.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "double"
