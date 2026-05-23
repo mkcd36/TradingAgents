@@ -217,8 +217,26 @@ def _prompt_custom_model_id() -> str:
     )
 
 
+_MODE_ENV_VAR = {
+    "quick": "TRADINGAGENTS_QUICK_THINK_LLM",
+    "deep": "TRADINGAGENTS_DEEP_THINK_LLM",
+}
+
+
+def _env_model_for_mode(mode: str) -> str | None:
+    """Return the env-configured model id for `mode` ('quick' or 'deep'), or None."""
+    return os.environ.get(_MODE_ENV_VAR.get(mode, ""))
+
+
 def _select_model(provider: str, mode: str) -> str:
-    """Select a model for the given provider and mode (quick/deep)."""
+    """Select a model for the given provider and mode (quick/deep).
+
+    When `TRADINGAGENTS_QUICK_THINK_LLM` / `TRADINGAGENTS_DEEP_THINK_LLM` is
+    set in the environment, the matching choice is highlighted as the
+    default so the user can press Enter to accept the env value instead of
+    re-picking the same model on every run. If the env value isn't in the
+    catalog (e.g. a custom model id), it's silently ignored.
+    """
     if provider.lower() == "openrouter":
         return select_openrouter_model()
 
@@ -226,18 +244,23 @@ def _select_model(provider: str, mode: str) -> str:
         return (
             questionary.text(
                 f"Enter Azure deployment name ({mode}-thinking):",
+                default=_env_model_for_mode(mode) or "",
                 validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
             )
             .ask()
             .strip()
         )
 
+    options = get_model_options(provider, mode)
+    env_model = _env_model_for_mode(mode)
+    default_value = (
+        env_model if env_model and any(value == env_model for _, value in options) else None
+    )
+
     choice = questionary.select(
         f"Select Your [{mode.title()}-Thinking LLM Engine]:",
-        choices=[
-            questionary.Choice(display, value=value)
-            for display, value in get_model_options(provider, mode)
-        ],
+        choices=[questionary.Choice(display, value=value) for display, value in options],
+        default=default_value,
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
             [
@@ -268,19 +291,19 @@ def select_deep_thinking_agent(provider) -> str:
     return _select_model(provider, "deep")
 
 
-def select_llm_provider() -> tuple[str, str | None]:
-    """Select the LLM provider and its API endpoint."""
-    # Ollama users can point at a remote ollama-serve via OLLAMA_BASE_URL
-    # (convention from the broader Ollama ecosystem); falls back to the
-    # localhost default when unset.
+def _build_provider_table() -> list[tuple[str, str, str | None]]:
+    """Return the list of (display_name, provider_key, base_url) tuples.
+
+    Extracted so both the interactive selector and the non-interactive
+    code path resolve the same backend URL for a given provider key
+    (e.g. routing OpenAI through Fuel iX via TRADINGAGENTS_LLM_BACKEND_URL).
+    """
     ollama_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
-    # (display_name, provider_key, base_url)
     # Honor TRADINGAGENTS_LLM_BACKEND_URL for the OpenAI entry so users on
     # OpenAI-compatible gateways (Fuel iX, LiteLLM, vLLM, etc.) can route
-    # through their proxy without forking the CLI. Falls back to the public
-    # OpenAI endpoint when the override isn't set.
+    # through their proxy without forking the CLI.
     openai_base_url = os.environ.get("TRADINGAGENTS_LLM_BACKEND_URL") or "https://api.openai.com/v1"
-    PROVIDERS = [
+    return [
         ("OpenAI", "openai", openai_base_url),
         ("Google", "google", None),
         ("Anthropic", "anthropic", "https://api.anthropic.com/"),
@@ -294,12 +317,40 @@ def select_llm_provider() -> tuple[str, str | None]:
         ("Ollama", "ollama", ollama_url),
     ]
 
+
+def resolve_provider_from_env() -> tuple[str, str | None] | None:
+    """If TRADINGAGENTS_LLM_PROVIDER is set, return its (provider, url) tuple.
+
+    Used by the non-interactive entry point to skip provider selection
+    entirely. Returns None when no env var is set or the value doesn't
+    match a known provider key.
+    """
+    env_provider = (os.environ.get("TRADINGAGENTS_LLM_PROVIDER") or "").strip().lower()
+    if not env_provider:
+        return None
+    for _display, key, url in _build_provider_table():
+        if key == env_provider:
+            return key, url
+    return None
+
+
+def select_llm_provider() -> tuple[str, str | None]:
+    """Select the LLM provider and its API endpoint.
+
+    When `TRADINGAGENTS_LLM_PROVIDER` is set in the environment, the
+    matching entry is highlighted as the default so the user can press
+    Enter to accept it instead of re-picking the same provider every run.
+    """
+    providers = _build_provider_table()
+    env_default = resolve_provider_from_env()
+
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
             questionary.Choice(display, value=(provider_key, url))
-            for display, provider_key, url in PROVIDERS
+            for display, provider_key, url in providers
         ],
+        default=env_default,
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
             [
@@ -319,15 +370,23 @@ def select_llm_provider() -> tuple[str, str | None]:
 
 
 def ask_openai_reasoning_effort() -> str:
-    """Ask for OpenAI reasoning effort level."""
+    """Ask for OpenAI reasoning effort level.
+
+    Honors `TRADINGAGENTS_OPENAI_REASONING_EFFORT` (low/medium/high) as
+    the default selection when set, so users with a preferred effort
+    level don't have to re-pick it on every CLI invocation.
+    """
     choices = [
         questionary.Choice("Medium (Default)", "medium"),
         questionary.Choice("High (More thorough)", "high"),
         questionary.Choice("Low (Faster)", "low"),
     ]
+    env_effort = (os.environ.get("TRADINGAGENTS_OPENAI_REASONING_EFFORT") or "").strip().lower()
+    default_value = env_effort if env_effort in {"low", "medium", "high"} else None
     return questionary.select(
         "Select Reasoning Effort:",
         choices=choices,
+        default=default_value,
         style=questionary.Style(
             [
                 ("selected", "fg:cyan noinherit"),
