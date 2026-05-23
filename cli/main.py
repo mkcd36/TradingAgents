@@ -971,9 +971,102 @@ def format_tool_args(args, max_length=80) -> str:
     return result
 
 
-def run_analysis(checkpoint: bool = False):
-    # First get all user selections
-    selections = get_user_selections()
+def build_non_interactive_selections(
+    *,
+    ticker: str,
+    analysis_date: str,
+    analysts: list[AnalystType] | None = None,
+    research_depth: int | None = None,
+    output_language: str | None = None,
+) -> dict:
+    """Construct the same selections dict get_user_selections() returns,
+    populated entirely from CLI args + env vars.
+
+    Required env vars: TRADINGAGENTS_LLM_PROVIDER,
+    TRADINGAGENTS_DEEP_THINK_LLM, TRADINGAGENTS_QUICK_THINK_LLM. Optional:
+    TRADINGAGENTS_OUTPUT_LANGUAGE, TRADINGAGENTS_OPENAI_REASONING_EFFORT,
+    TRADINGAGENTS_MAX_DEBATE_ROUNDS, TRADINGAGENTS_LLM_BACKEND_URL.
+
+    Raises typer.Exit when a required env var is missing or the provider
+    key is unrecognized — non-interactive mode is intentionally strict so
+    a misconfigured cron/CI run fails fast instead of silently falling
+    back to defaults.
+    """
+    provider_resolved = resolve_provider_from_env()
+    if provider_resolved is None:
+        console.print(
+            "[red]TRADINGAGENTS_LLM_PROVIDER is not set or doesn't match a known "
+            "provider. Set it in .env (e.g. TRADINGAGENTS_LLM_PROVIDER=openai) or "
+            "drop --non-interactive to pick interactively.[/red]"
+        )
+        raise typer.Exit(2)
+    provider, backend_url = provider_resolved
+
+    quick = os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM")
+    deep = os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM")
+    if not quick or not deep:
+        console.print(
+            "[red]Non-interactive mode requires TRADINGAGENTS_QUICK_THINK_LLM and "
+            "TRADINGAGENTS_DEEP_THINK_LLM to be set in your environment.[/red]"
+        )
+        raise typer.Exit(2)
+
+    asset_type = detect_asset_type(ticker)
+    if analysts is None:
+        # Default to all analysts the asset type supports (crypto skips
+        # Fundamentals; stocks include all four).
+        analysts = filter_analysts_for_asset_type(
+            [
+                AnalystType.MARKET,
+                AnalystType.SOCIAL,
+                AnalystType.NEWS,
+                AnalystType.FUNDAMENTALS,
+            ],
+            asset_type,
+        )
+
+    if research_depth is None:
+        env_depth = os.environ.get("TRADINGAGENTS_MAX_DEBATE_ROUNDS")
+        try:
+            research_depth = int(env_depth) if env_depth else 1
+        except ValueError:
+            research_depth = 1
+
+    if output_language is None:
+        output_language = os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE", "English")
+
+    # Provider-specific thinking knobs are read from env so a single
+    # `.env` covers all the prompts the CLI normally asks. None means the
+    # provider client uses its built-in default.
+    reasoning_effort = (
+        os.environ.get("TRADINGAGENTS_OPENAI_REASONING_EFFORT")
+        if provider == "openai"
+        else None
+    )
+
+    return {
+        "ticker": ticker.strip().upper(),
+        "asset_type": asset_type.value,
+        "analysis_date": analysis_date,
+        "analysts": analysts,
+        "research_depth": research_depth,
+        "llm_provider": provider,
+        "backend_url": backend_url,
+        "shallow_thinker": quick,
+        "deep_thinker": deep,
+        "google_thinking_level": None,
+        "openai_reasoning_effort": reasoning_effort,
+        "anthropic_effort": None,
+        "output_language": output_language,
+    }
+
+
+def run_analysis(checkpoint: bool = False, selections: dict | None = None):
+    # When `selections` is provided (non-interactive mode), skip the
+    # interactive prompt phase entirely. Otherwise gather selections via
+    # the questionary flow.
+    if selections is None:
+        selections = get_user_selections()
 
     # Create config with selected research depth
     config = DEFAULT_CONFIG.copy()
@@ -1282,13 +1375,70 @@ def analyze(
         "--clear-checkpoints",
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        "-y",
+        help=(
+            "Skip all interactive prompts and read provider/models/effort from "
+            "environment variables (TRADINGAGENTS_LLM_PROVIDER, "
+            "TRADINGAGENTS_DEEP_THINK_LLM, TRADINGAGENTS_QUICK_THINK_LLM, etc.). "
+            "Requires --ticker; --date defaults to today. Useful for cron, CI, "
+            "or any scripted run where the prompts get in the way."
+        ),
+    ),
+    ticker: str | None = typer.Option(
+        None,
+        "--ticker",
+        help="Ticker symbol to analyze (required with --non-interactive).",
+    ),
+    date: str | None = typer.Option(
+        None,
+        "--date",
+        help="Analysis date in YYYY-MM-DD (defaults to today when --non-interactive).",
+    ),
+    depth: int | None = typer.Option(
+        None,
+        "--depth",
+        help="Research depth: 1=Shallow, 3=Medium, 5=Deep. Falls back to "
+        "TRADINGAGENTS_MAX_DEBATE_ROUNDS env or 1 when --non-interactive.",
+    ),
 ):
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
 
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
-    run_analysis(checkpoint=checkpoint)
+
+    selections = None
+    if non_interactive:
+        if not ticker:
+            console.print(
+                "[red]--non-interactive requires --ticker. "
+                "Example: tradingagents -y --ticker NVDA --date 2026-05-20[/red]"
+            )
+            raise typer.Exit(2)
+        analysis_date = date or datetime.datetime.now().strftime("%Y-%m-%d")
+        selections = build_non_interactive_selections(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            research_depth=depth,
+        )
+        console.print(
+            f"[dim]Non-interactive: {selections['ticker']} on "
+            f"{selections['analysis_date']} via {selections['llm_provider']} "
+            f"(deep={selections['deep_thinker']}, quick={selections['shallow_thinker']}, "
+            f"depth={selections['research_depth']})[/dim]"
+        )
+    elif ticker or date or depth is not None:
+        # Surface that interactive mode ignores these flags so users aren't
+        # surprised when their --ticker quietly does nothing.
+        console.print(
+            "[yellow]Note: --ticker/--date/--depth are only used with "
+            "--non-interactive. The interactive prompts will run.[/yellow]"
+        )
+
+    run_analysis(checkpoint=checkpoint, selections=selections)
 
 
 if __name__ == "__main__":
